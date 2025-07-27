@@ -1,4 +1,7 @@
 from pydantic import BaseModel
+from typing import Dict
+from pydantic import Field, validator
+from datetime import datetime
 
 class Joke(BaseModel):
     id: int
@@ -26,3 +29,27 @@ class R2Event(BaseModel):
     Event: str
     EventTime: str
     EventUnixMilli: int
+
+class ShiftTimes(BaseModel):
+    day_start: str
+    day_end: str
+    afternoon_start: str
+    afternoon_end: str
+    night_start: str
+    night_end: str
+
+    @validator('*')
+    def validate_datetime(cls, v):
+        try:
+            datetime.fromisoformat(v)
+        except Exception:
+            raise ValueError('All shift times must be valid ISO 8601 datetime strings')
+        return v
+
+class ShiftTimesRequest(BaseModel):
+    care_unit_id: str = Field(..., description="Unique ID of the care unit or site.")
+    shift_times: ShiftTimes
+
+class ShiftTimesResponse(BaseModel):
+    care_unit_id: str
+    shift_times: ShiftTimes

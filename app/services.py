@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import glob
 from .database import get_cognito_db
 import pandas as pd
+from .models import ShiftTimesRequest, ShiftTimesResponse
+from datetime import datetime
+from fastapi import HTTPException
 
 EXTERNAL_API = "https://official-joke-api.appspot.com/random_joke"
 logger = logging.getLogger(__name__)
@@ -110,3 +113,46 @@ async def process_cognito_reports():
         else:
             await settings_collection.insert_one({"_id": "imported_cognito_files", "files": imported_now})
     return {"imported_r1": imported_r1, "imported_r2": imported_r2, "skipped": list(imported_files)}
+
+async def save_shift_times(request: ShiftTimesRequest):
+    db = get_cognito_db()
+    settings = db.settings
+    # Validate care_unit_id exists
+    careunit_doc = await settings.find_one({"_id": "careunitlist"})
+    if not careunit_doc or request.care_unit_id not in careunit_doc.get("careUnitIds", []):
+        raise HTTPException(status_code=400, detail="Invalid or missing care_unit_id.")
+    st = request.shift_times
+    try:
+        day_start = datetime.fromisoformat(st.day_start)
+        day_end = datetime.fromisoformat(st.day_end)
+        afternoon_end = datetime.fromisoformat(st.afternoon_end)
+    except Exception:
+        raise HTTPException(status_code=400, detail="day_start, day_end, and afternoon_end must be valid ISO 8601 datetime strings.")
+    # Check required fields and order
+    if not (day_start and day_end and afternoon_end):
+        raise HTTPException(status_code=400, detail="Missing required shift times.")
+    if not (day_start < day_end < afternoon_end):
+        raise HTTPException(status_code=409, detail="Shift times must be in order: day_start < day_end < afternoon_end.")
+    # Derive the other fields
+    shift_times = {
+        "day_start": st.day_start,
+        "day_end": st.day_end,
+        "afternoon_start": st.day_end,
+        "afternoon_end": st.afternoon_end,
+        "night_start": st.afternoon_end,
+        "night_end": st.day_start,
+    }
+    await settings.update_one(
+        {"_id": f"shift_times_{request.care_unit_id}"},
+        {"$set": {"care_unit_id": request.care_unit_id, "shift_times": shift_times}},
+        upsert=True
+    )
+    return {"status": "success", "message": "Shift times saved successfully."}
+
+async def get_shift_times(care_unit_id: str):
+    db = get_cognito_db()
+    settings = db.settings
+    doc = await settings.find_one({"_id": f"shift_times_{care_unit_id}"})
+    if not doc:
+        raise HTTPException(status_code=404, detail="No shift times found for the specified care unit.")
+    return {"care_unit_id": care_unit_id, "shift_times": doc["shift_times"]}

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Query, Body
-from ..services import fetch_cognito_data, CARE_UNIT_ID, TIMEZONE, process_cognito_reports
-from ..models import CareUnitIdRequest, CareUnitListResponse
+from ..services import fetch_cognito_data, CARE_UNIT_ID, TIMEZONE, process_cognito_reports, save_shift_times, get_shift_times
+from ..models import CareUnitIdRequest, CareUnitListResponse, ShiftTimesRequest, ShiftTimesResponse
 from ..controller import add_care_unit_id, get_all_care_unit_ids
+from fastapi import HTTPException, status
 
 router = APIRouter()
 
@@ -31,3 +32,28 @@ async def process_cognito_reports_endpoint():
     """
     result = await process_cognito_reports()
     return result
+
+@router.post("/api/shift-times", response_model=None)
+async def store_shift_times(request: ShiftTimesRequest):
+    """
+    Saves shift times for a given care unit.
+    """
+    try:
+        return await save_shift_times(request)
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise HTTPException(status_code=500, detail="Server/database failure.")
+
+@router.get("/api/shift-times/{care_unit_id}", response_model=ShiftTimesResponse)
+async def get_shift_times_endpoint(care_unit_id: str):
+    """
+    Fetches existing shift times for the selected care unit.
+    """
+    try:
+        result = await get_shift_times(care_unit_id)
+        return result
+    except HTTPException as e:
+        raise e
+    except Exception:
+        raise HTTPException(status_code=500, detail="Database read failure.")
